@@ -166,6 +166,77 @@ class AIUploader:
         await self.page.wait_for_load_state("networkidle", timeout=TIMEOUT)
         logger.info("AI platform loaded")
     
+    async def set_reasoning_minimal(self) -> bool:
+        """
+        Set reasoning level to Minimal for faster responses.
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            logger.info("Setting reasoning level to Minimal...")
+            
+            # Click on "Reasoning Level" button (brain icon)
+            # Using specific attributes from the actual button
+            reasoning_selectors = [
+                '#reasoning-selector-button',
+                '[data-testid="reasoning-selector-trigger-button"]',
+                '[aria-label="Reasoning level"]',
+                'button[id="reasoning-selector-button"]',
+            ]
+            
+            clicked = False
+            for selector in reasoning_selectors:
+                try:
+                    element = self.page.locator(selector).first
+                    if await element.is_visible(timeout=2000):
+                        await element.click()
+                        clicked = True
+                        logger.info("Clicked Reasoning Level button")
+                        await self.page.wait_for_timeout(1000)
+                        break
+                except Exception:
+                    continue
+            
+            if not clicked:
+                logger.warning("Could not find Reasoning Level button")
+                return False
+            
+            # Click on "Minimal" option in the dropdown
+            minimal_selectors = [
+                '[data-testid*="minimal"]',
+                'div:has-text("Minimal")',
+                'span:has-text("Minimal")',
+                '[role="option"]:has-text("Minimal")',
+                '[role="menuitem"]:has-text("Minimal")',
+                'button:has-text("Minimal")',
+                'li:has-text("Minimal")',
+                'label:has-text("Minimal")',
+            ]
+            
+            for selector in minimal_selectors:
+                try:
+                    elements = self.page.locator(selector)
+                    count = await elements.count()
+                    for i in range(count):
+                        element = elements.nth(i)
+                        if await element.is_visible(timeout=1000):
+                            await element.click()
+                            logger.info("✓ Set reasoning to Minimal")
+                            await self.page.wait_for_timeout(500)
+                            return True
+                except Exception:
+                    continue
+            
+            # Close dropdown if Minimal not found
+            logger.warning("Could not find Minimal option")
+            await self.page.keyboard.press("Escape")
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error setting reasoning level: {e}")
+            return False
+    
     async def upload_video(self, video_path: Path) -> bool:
         """
         Upload a video file to the AI platform.
@@ -286,7 +357,7 @@ class AIUploader:
             logger.error(f"Error sending prompt: {e}")
             return False
     
-    async def wait_for_response(self, timeout: int = 120000) -> Optional[str]:
+    async def wait_for_response(self, timeout: int = 180000) -> Optional[str]:
         """
         Wait for and extract AI response.
         
@@ -300,6 +371,32 @@ class AIUploader:
             # Wait for response to appear
             logger.info("Waiting for AI response...")
             
+            # Placeholder/loading texts to ignore
+            loading_texts = [
+                'ai reasoning',
+                'thinking',
+                'generating',
+                'loading',
+                'processing',
+            ]
+            
+            # Incomplete response indicators (table header without data)
+            incomplete_indicators = [
+                'metricsvalue',  # Table header without separator
+                'metrics value',
+                'here\'s the analysis of the video: metricsvalue',
+                'here\'s the analysis',
+            ]
+            
+            # End indicators - response should contain these to be considered complete
+            end_indicators = [
+                'target surprise',  # Last metric in the prompt
+                'uniqueness of concept',
+                'execution style',
+                'messaging // messaging summary',
+                'meaningful & different',
+            ]
+            
             # Look for response container
             response_selectors = [
                 '.assistant-message',
@@ -309,59 +406,90 @@ class AIUploader:
                 '.response-text',
                 '.chat-message:last-child',
                 'div[class*="response"]',
-                'div[class*="message"]:last-of-type'
+                'div[class*="message"]:last-of-type',
+                '[class*="markdown"]',
+                '[class*="prose"]',
             ]
             
-            # Wait for loading to complete
-            await self.page.wait_for_timeout(5000)  # Initial wait
+            # Wait for initial response to appear
+            await self.page.wait_for_timeout(5000)
             
-            # Check for loading indicators
-            loading_selectors = [
-                '.loading',
-                '[class*="loading"]',
-                '[class*="spinner"]',
-                '.typing-indicator'
-            ]
+            # Track response stability
+            last_text = ""
+            stable_count = 0
+            required_stable = 3  # Response must be stable for 3 consecutive checks
             
-            for _ in range(60):  # Wait up to 2 minutes
-                is_loading = False
-                for selector in loading_selectors:
-                    try:
-                        if await self.page.locator(selector).is_visible(timeout=500):
-                            is_loading = True
-                            break
-                    except Exception:
-                        pass
+            # Poll until we get actual content (not loading text)
+            max_attempts = 150  # 5 minutes max (150 * 2 seconds)
+            
+            for attempt in range(max_attempts):
+                current_text = ""
                 
-                if not is_loading:
-                    break
+                # Try each selector
+                for selector in response_selectors:
+                    try:
+                        elements = self.page.locator(selector)
+                        count = await elements.count()
+                        
+                        if count > 0:
+                            # Get the last element (most recent response)
+                            last_element = elements.last
+                            text = await last_element.text_content()
+                            
+                            if text and len(text) > len(current_text):
+                                current_text = text
+                                    
+                    except Exception:
+                        continue
+                
+                if current_text:
+                    text_lower = current_text.lower().strip()
                     
+                    # Check if it's still loading/reasoning
+                    is_loading = any(lt in text_lower for lt in loading_texts)
+                    
+                    # Check if response is incomplete (just header, no data)
+                    is_incomplete = any(inc in text_lower for inc in incomplete_indicators) and len(current_text.strip()) < 200
+                    
+                    # Check if response contains end indicators (complete response)
+                    has_end_indicator = any(end in text_lower for end in end_indicators)
+                    
+                    # Check if response is stable (same as last check)
+                    if current_text == last_text and len(current_text) > 500:
+                        stable_count += 1
+                    else:
+                        stable_count = 0
+                    
+                    last_text = current_text
+                    
+                    # Response is complete if:
+                    # 1. Not loading
+                    # 2. Not incomplete header only
+                    # 3. Has end indicator OR is stable for several checks
+                    # 4. Minimum length
+                    is_complete = (
+                        not is_loading and 
+                        not is_incomplete and 
+                        len(current_text.strip()) > 800 and  # Substantial response
+                        (has_end_indicator or stable_count >= required_stable)
+                    )
+                    
+                    if is_complete:
+                        logger.info(f"Response complete (attempt {attempt + 1}, {len(current_text)} chars, stable={stable_count})")
+                        return clean_message(current_text)
+                
+                # Log progress every 10 attempts
+                if attempt % 10 == 0 and attempt > 0:
+                    logger.info(f"Waiting for complete response... (attempt {attempt}, chars={len(current_text)}, stable={stable_count})")
+                
                 await self.page.wait_for_timeout(2000)
             
-            # Extract response text
-            await self.page.wait_for_timeout(2000)  # Extra wait for rendering
+            # Timeout reached - get whatever we have but warn
+            logger.warning("Timeout waiting for complete response, getting available content...")
             
-            for selector in response_selectors:
-                try:
-                    elements = self.page.locator(selector)
-                    count = await elements.count()
-                    if count > 0:
-                        # Get the last message (most recent response)
-                        last_element = elements.last
-                        text = await last_element.text_content()
-                        if text and len(text) > 10:
-                            logger.info("Response extracted successfully")
-                            return clean_message(text)
-                except Exception:
-                    continue
-            
-            # Fallback: try to get any visible text that looks like a response
-            try:
-                body_text = await self.page.locator('main, .main-content, .chat-container').text_content()
-                if body_text:
-                    return clean_message(body_text[-5000:])  # Last 5000 chars
-            except Exception:
-                pass
+            if last_text and len(last_text) > 500:
+                logger.warning(f"Returning potentially incomplete response ({len(last_text)} chars)")
+                return clean_message(last_text)
             
             logger.warning("Could not extract response")
             return None
@@ -370,50 +498,119 @@ class AIUploader:
             logger.error(f"Error waiting for response: {e}")
             return None
     
-    async def process_video(self, url: str, video_path: Path) -> Optional[str]:
+    async def is_response_complete(self, text: str) -> bool:
+        """
+        Check if response appears complete.
+        
+        Args:
+            text: Response text
+            
+        Returns:
+            True if response appears complete
+        """
+        if not text:
+            return False
+        
+        # If response is very long, consider it complete (AI finished generating)
+        if len(text) > 2000:
+            return True
+        
+        if len(text) < 500:
+            return False
+        
+        text_lower = text.lower()
+        
+        # Check for end indicators
+        end_indicators = [
+            'target surprise',
+            'uniqueness of concept', 
+            'execution style',
+            'meaningful & different',
+            'authenticity',
+        ]
+        
+        has_end = any(ind in text_lower for ind in end_indicators)
+        
+        # Check for truncation indicators
+        truncation_signs = [
+            text.rstrip().endswith('-'),
+            text.rstrip().endswith('**'),
+            text.rstrip().endswith(':'),
+        ]
+        
+        is_truncated = any(truncation_signs)
+        
+        # Complete if has end indicator and not truncated, OR if long enough
+        return (has_end and not is_truncated) or len(text) > 1500
+    
+    async def process_video(self, url: str, video_path: Path, max_retries: int = 2) -> Optional[str]:
         """
         Process a single video: upload, prompt, and get response.
         
         Args:
             url: Original video URL
             video_path: Path to downloaded video
+            max_retries: Maximum number of retries if response is incomplete
             
         Returns:
             AI response message or None
         """
-        try:
-            # Navigate to fresh page
-            await self.navigate_to_ai()
-            await self.page.wait_for_timeout(2000)
-            
-            # Upload video
-            success = await self.upload_video(video_path)
-            if not success:
-                logger.error(f"Failed to upload video: {video_path}")
-                return None
-            
-            # Wait for upload to complete
-            await self.page.wait_for_timeout(3000)
-            
-            # Send prompt
-            success = await self.send_prompt(self.prompt)
-            if not success:
-                logger.error("Failed to send prompt")
-                return None
-            
-            # Wait for response
-            response = await self.wait_for_response()
-            
-            if response:
-                # Save result
-                append_result_to_csv(url, response)
-                logger.info(f"Processed video: {url}")
-            
-            return response
-            
-        except Exception as e:
-            logger.error(f"Error processing video {video_path}: {e}")
-            return None
+        for retry in range(max_retries + 1):
+            try:
+                if retry > 0:
+                    logger.info(f"Retry {retry}/{max_retries} for {video_path.name}")
+                
+                # Navigate to fresh page
+                await self.navigate_to_ai()
+                await self.page.wait_for_timeout(2000)
+                
+                # Set reasoning level to Minimal for faster response
+                await self.set_reasoning_minimal()
+                await self.page.wait_for_timeout(500)
+                
+                # Upload video
+                success = await self.upload_video(video_path)
+                if not success:
+                    logger.error(f"Failed to upload video: {video_path}")
+                    continue
+                
+                # Wait for upload to complete
+                await self.page.wait_for_timeout(3000)
+                
+                # Send prompt
+                success = await self.send_prompt(self.prompt)
+                if not success:
+                    logger.error("Failed to send prompt")
+                    continue
+                
+                # Wait for response
+                response = await self.wait_for_response()
+                
+                if response:
+                    # Check if response is complete
+                    if await self.is_response_complete(response):
+                        # Save result
+                        append_result_to_csv(url, response)
+                        logger.info(f"✓ Processed video: {url}")
+                        return response
+                    else:
+                        logger.warning(f"Response appears incomplete ({len(response)} chars), will retry...")
+                        if retry < max_retries:
+                            continue
+                        else:
+                            # Last retry - save whatever we have
+                            logger.warning("Max retries reached, saving potentially incomplete response")
+                            append_result_to_csv(url, response)
+                            return response
+                
+            except Exception as e:
+                logger.error(f"Error processing video {video_path}: {e}")
+                if retry < max_retries:
+                    await asyncio.sleep(3)
+                    continue
+        
+        logger.error(f"Failed to process video after {max_retries + 1} attempts: {url}")
+        return None
     
     async def process_all_pending(self) -> dict:
         """
