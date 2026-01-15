@@ -25,12 +25,13 @@ from config import (
 )
 from utils import (
     logger,
-    append_result_to_csv,
+    append_result_to_csv_parsed,
     get_downloaded_videos,
     get_processed_urls,
     clean_message,
     get_unique_urls,
-    get_video_path
+    get_video_path,
+    migrate_old_output_format
 )
 
 
@@ -589,8 +590,8 @@ class AIUploader:
                 if response:
                     # Check if response is complete
                     if await self.is_response_complete(response):
-                        # Save result
-                        append_result_to_csv(url, response)
+                        # Save result (parsed into columns)
+                        append_result_to_csv_parsed(url, response)
                         logger.info(f"✓ Processed video: {url}")
                         return response
                     else:
@@ -600,7 +601,7 @@ class AIUploader:
                         else:
                             # Last retry - save whatever we have
                             logger.warning("Max retries reached, saving potentially incomplete response")
-                            append_result_to_csv(url, response)
+                            append_result_to_csv_parsed(url, response)
                             return response
                 
             except Exception as e:
@@ -672,6 +673,9 @@ async def main():
     parser.add_argument('--clear-session', action='store_true', help='Clear saved session')
     
     args = parser.parse_args()
+    
+    # Migrate old output format if needed (runs once automatically)
+    migrate_old_output_format()
     
     # Clear session if requested
     if args.clear_session:

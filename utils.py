@@ -246,3 +246,218 @@ def clean_message(message: str) -> str:
     # Remove leading/trailing whitespace
     message = message.strip()
     return message
+
+
+# Define all metrics columns in order
+METRICS_COLUMNS = [
+    "Business Unit",
+    "Category", 
+    "Brand",
+    "Platform",
+    "Creative Link",
+    "Period",
+    "Brand Presence // First Product Appearance (Seconds)",
+    "Brand Presence // First Product Appearance (%)",
+    "Brand Presence // First Standalone Logo Appearance (Seconds)",
+    "Brand Presence // First Standalone Logo Appearance (%)",
+    "Brand Presence // Brand Logo Visibility - Standalone",
+    "Brand Presence // Brand Logo Visibility - On Product",
+    "Brand Presence // Brand Prominence",
+    "Brand Presence // Brand Appearance Count",
+    "Brand Presence // Other Brands Present",
+    "Visuals // Visual Style",
+    "Visuals // Color Palette",
+    "Visuals // Creative Duration (Seconds)",
+    "Visuals // Animation/CGI Used",
+    "Visuals // Production Quality",
+    "Visuals // Setting",
+    "Visuals // Nature Setting",
+    "Visuals // Scientific Setting",
+    "Visuals // Real Life vs. Staged",
+    "Visuals // Individual vs. Group Focus",
+    "Visuals // On-Screen Text",
+    "Visuals // Text Style",
+    "Visuals // Text Size",
+    "Visuals // Beauty Appeal",
+    "Visuals // Ingredient Visual",
+    "Visuals // Horizontal vs. Vertical",
+    "Audio // Audio Type",
+    "Audio // Voiceover vs. Talent",
+    "Audio // Localized Language",
+    "Audio // Sound Effects Usage",
+    "Talent // Talent Type",
+    "Talent // Number of KOLs",
+    "Talent // Brand Ambassador Used",
+    "Messaging // Messaging Summary",
+    "Messaging // Emotional Tone",
+    "Messaging // Key Product Benefit Highlighted",
+    "Messaging // Emotional Appeal",
+    "Messaging // Storytelling Used",
+    "Messaging // Call to Action (CTA)",
+    "Meaningful & Different // Social Impact",
+    "Meaningful & Different // Emotional Depth",
+    "Meaningful & Different // Authenticity",
+    "Meaningful & Different // Uniqueness of Concept",
+    "Meaningful & Different // Execution Style",
+    "Meaningful & Different // Target Surprise",
+]
+
+
+def parse_message_to_dict(message: str) -> Dict[str, str]:
+    """
+    Parse AI response message into a dictionary of metrics.
+    
+    Args:
+        message: Raw message from AI (flattened table format)
+        
+    Returns:
+        Dictionary with metric names as keys and values
+    """
+    result = {}
+    
+    # Clean the message
+    text = message.strip()
+    
+    # Remove common prefixes like "AI", "My thought process", "MetricsValue"
+    prefixes_to_remove = [
+        r'^AI\s*',
+        r'My thought process\s*',
+        r'MetricsValue\s*',
+        r'Metrics\s*Value\s*',
+        r'\|\s*Metrics\s*\|\s*Value\s*\|',
+        r'\|[-\s]+\|[-\s]+\|',
+    ]
+    for prefix in prefixes_to_remove:
+        text = re.sub(prefix, '', text, flags=re.IGNORECASE)
+    
+    # Try to extract values for each metric
+    for i, metric in enumerate(METRICS_COLUMNS):
+        # Escape special regex characters in metric name
+        escaped_metric = re.escape(metric)
+        
+        # Determine the next metric for boundary
+        if i < len(METRICS_COLUMNS) - 1:
+            next_metric = re.escape(METRICS_COLUMNS[i + 1])
+            # Pattern: metric name followed by value, ending before next metric
+            pattern = rf'{escaped_metric}\s*[:\|]?\s*(.+?)(?={next_metric}|$)'
+        else:
+            # Last metric - capture everything after it
+            pattern = rf'{escaped_metric}\s*[:\|]?\s*(.+?)$'
+        
+        match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
+        if match:
+            value = match.group(1).strip()
+            # Clean up pipe characters and extra whitespace
+            value = re.sub(r'\s*\|\s*', '', value)
+            value = re.sub(r'\s+', ' ', value)
+            result[metric] = value
+        else:
+            result[metric] = ""
+    
+    return result
+
+
+def append_result_to_csv_parsed(url: str, message: str, file_path: Path = OUTPUT_FILE):
+    """
+    Parse message and append as structured columns to CSV file.
+    
+    Args:
+        url: Video URL
+        message: AI generated message
+        file_path: Output file path
+    """
+    file_exists = file_path.exists()
+    
+    # Parse message into metrics dictionary
+    metrics = parse_message_to_dict(message)
+    
+    # Create row with url + all metrics
+    row = {'url': url}
+    row.update(metrics)
+    
+    # All fieldnames
+    fieldnames = ['url'] + METRICS_COLUMNS
+    
+    try:
+        with open(file_path, 'a', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            
+            if not file_exists:
+                writer.writeheader()
+            
+            writer.writerow(row)
+        logger.info(f"Appended parsed result for {url}")
+    except Exception as e:
+        logger.error(f"Error appending result: {e}")
+        raise
+
+
+def migrate_old_output_format(old_file: Path = OUTPUT_FILE, backup: bool = True):
+    """
+    Check if output.csv is in old format (url, message) and convert to parsed format.
+    This runs automatically on startup.
+    
+    Args:
+        old_file: Path to output file
+        backup: Whether to backup old file
+        
+    Returns:
+        True if migration was done, False if not needed
+    """
+    if not old_file.exists():
+        return False
+    
+    # Check if file is in old format by reading header
+    try:
+        with open(old_file, 'r', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            header = next(reader, None)
+            
+            if not header:
+                return False
+            
+            # Old format has only 'url' and 'message' columns
+            if header == ['url', 'message']:
+                logger.info("Detected old output format, migrating to parsed format...")
+                
+                # Read all old data
+                f.seek(0)
+                dict_reader = csv.DictReader(f)
+                rows = list(dict_reader)
+                
+                if not rows:
+                    return False
+                
+                # Backup old file
+                if backup:
+                    backup_path = old_file.with_suffix('.csv.bak')
+                    import shutil
+                    shutil.copy(old_file, backup_path)
+                    logger.info(f"Backed up old file to {backup_path}")
+                
+                # Convert to new format
+                parsed_rows = []
+                for row in rows:
+                    url = row.get('url', '')
+                    message = row.get('message', '')
+                    metrics = parse_message_to_dict(message)
+                    new_row = {'url': url}
+                    new_row.update(metrics)
+                    parsed_rows.append(new_row)
+                
+                # Write new format
+                fieldnames = ['url'] + METRICS_COLUMNS
+                with open(old_file, 'w', newline='', encoding='utf-8') as out_f:
+                    writer = csv.DictWriter(out_f, fieldnames=fieldnames)
+                    writer.writeheader()
+                    writer.writerows(parsed_rows)
+                
+                logger.info(f"✓ Migrated {len(parsed_rows)} rows to parsed format")
+                return True
+            
+            # Already in new format
+            return False
+            
+    except Exception as e:
+        logger.error(f"Error checking/migrating output format: {e}")
+        return False
