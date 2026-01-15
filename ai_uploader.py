@@ -544,7 +544,7 @@ class AIUploader:
         # Complete if has end indicator and not truncated, OR if long enough
         return (has_end and not is_truncated) or len(text) > 1500
     
-    async def process_video(self, url: str, video_path: Path, max_retries: int = 2) -> Optional[str]:
+    async def process_video(self, url: str, video_path: Path, max_retries: int = 5) -> Optional[str]:
         """
         Process a single video: upload, prompt, and get response.
         
@@ -556,7 +556,7 @@ class AIUploader:
         Returns:
             AI response message or None
         """
-        for retry in range(max_retries + 1):
+        for retry in range(max_retries):
             try:
                 if retry > 0:
                     logger.info(f"Retry {retry}/{max_retries} for {video_path.name}")
@@ -610,7 +610,7 @@ class AIUploader:
                     await asyncio.sleep(3)
                     continue
         
-        logger.error(f"Failed to process video after {max_retries + 1} attempts: {url}")
+        logger.error(f"Failed to process video after {max_retries} attempts: {url}")
         return None
     
     async def process_all_pending(self) -> dict:

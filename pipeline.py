@@ -192,7 +192,7 @@ class StreamingPipeline:
                     log_failed_url(url, "Video file not found")
                     continue
                 
-                response = await uploader.process_video(url, video_path)
+                response = await uploader.process_video(url, video_path, max_retries=5)
                 
                 if response:
                     self.stats['upload']['successful'] += 1
@@ -271,7 +271,7 @@ class StreamingPipeline:
                     for url, video_path in downloaded_videos:
                         logger.info(f"Processing: {video_path.name}")
                         
-                        response = await uploader.process_video(url, video_path)
+                        response = await uploader.process_video(url, video_path, max_retries=5)
                         
                         if response:
                             self.stats['upload']['successful'] += 1
