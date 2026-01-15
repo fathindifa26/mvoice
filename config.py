@@ -9,6 +9,7 @@ BASE_DIR = Path(__file__).parent
 DOWNLOADS_DIR = BASE_DIR / "downloads"
 DATA_FILE = BASE_DIR / "data.csv"
 OUTPUT_FILE = BASE_DIR / "output.csv"
+AUTH_STATE_FILE = BASE_DIR / "auth_state.json"  # Saved login session
 
 # Ensure downloads directory exists
 DOWNLOADS_DIR.mkdir(exist_ok=True)

@@ -20,7 +20,8 @@ from config import (
     BROWSER_HEADLESS,
     SLOW_MO,
     TIMEOUT,
-    DOWNLOADS_DIR
+    DOWNLOADS_DIR,
+    AUTH_STATE_FILE
 )
 from utils import (
     logger,
@@ -43,6 +44,7 @@ class AIUploader:
         self.prompt = prompt
         self.browser: Optional[Browser] = None
         self.page: Optional[Page] = None
+        self.context = None
         
     async def __aenter__(self):
         await self.start()
@@ -52,13 +54,21 @@ class AIUploader:
         await self.close()
         
     async def start(self):
-        """Initialize the browser and navigate to AI platform."""
+        """Initialize the browser and load saved session if available."""
         self.playwright = await async_playwright().start()
         self.browser = await self.playwright.chromium.launch(
             headless=self.headless,
             slow_mo=SLOW_MO
         )
-        self.context = await self.browser.new_context()
+        
+        # Load saved auth state if exists
+        if AUTH_STATE_FILE.exists():
+            logger.info("Loading saved login session...")
+            self.context = await self.browser.new_context(storage_state=str(AUTH_STATE_FILE))
+        else:
+            logger.info("No saved session found, will need to login")
+            self.context = await self.browser.new_context()
+        
         self.page = await self.context.new_page()
         logger.info("Browser started for AI upload")
         
@@ -69,6 +79,85 @@ class AIUploader:
         if self.playwright:
             await self.playwright.stop()
         logger.info("Browser closed")
+    
+    async def save_session(self):
+        """Save current browser session/cookies for future use."""
+        if self.context:
+            await self.context.storage_state(path=str(AUTH_STATE_FILE))
+            logger.info(f"Session saved to {AUTH_STATE_FILE}")
+    
+    async def login(self):
+        """
+        Navigate to AI platform and wait for user to complete Okta login.
+        After login, save the session for future use.
+        """
+        logger.info("Starting login process...")
+        logger.info(f"Navigating to {AI_URL}")
+        
+        await self.page.goto(AI_URL, timeout=TIMEOUT * 2)
+        
+        print("\n" + "="*60)
+        print("LOGIN REQUIRED")
+        print("="*60)
+        print("Browser telah dibuka. Silakan login via Okta.")
+        print("Setelah berhasil login dan halaman AI terbuka,")
+        print("tekan ENTER di terminal ini untuk menyimpan session...")
+        print("="*60 + "\n")
+        
+        # Wait for user to complete login
+        input("Tekan ENTER setelah login berhasil...")
+        
+        # Save the session
+        await self.save_session()
+        
+        print("\n✓ Session berhasil disimpan!")
+        print("  Selanjutnya tidak perlu login lagi.\n")
+        
+        return True
+    
+    async def check_login_status(self) -> bool:
+        """
+        Check if we're logged in by navigating to AI URL and checking for login page.
+        
+        Returns:
+            True if logged in, False if need to login
+        """
+        try:
+            await self.page.goto(AI_URL, timeout=TIMEOUT)
+            await self.page.wait_for_timeout(3000)
+            
+            # Check for common login page indicators
+            login_indicators = [
+                'okta',
+                'login',
+                'sign in',
+                'sign-in',
+                'authenticate'
+            ]
+            
+            current_url = self.page.url.lower()
+            
+            # If URL contains login indicators, we need to login
+            for indicator in login_indicators:
+                if indicator in current_url:
+                    logger.info("Login required - redirected to login page")
+                    return False
+            
+            # Also check page content for login forms
+            try:
+                login_form = await self.page.locator('input[type="password"]').is_visible(timeout=2000)
+                if login_form:
+                    logger.info("Login required - password field detected")
+                    return False
+            except Exception:
+                pass
+            
+            logger.info("Already logged in!")
+            return True
+            
+        except Exception as e:
+            logger.warning(f"Error checking login status: {e}")
+            return False
     
     async def navigate_to_ai(self):
         """Navigate to the AI platform."""
@@ -382,10 +471,40 @@ async def main():
     parser.add_argument('--prompt', type=str, default=DEFAULT_PROMPT, help='Custom prompt for AI')
     parser.add_argument('--all', action='store_true', help='Process all pending videos')
     parser.add_argument('--headless', action='store_true', help='Run browser in headless mode')
+    parser.add_argument('--login', action='store_true', help='Force login and save session')
+    parser.add_argument('--clear-session', action='store_true', help='Clear saved session')
     
     args = parser.parse_args()
     
-    async with AIUploader(headless=args.headless, prompt=args.prompt) as uploader:
+    # Clear session if requested
+    if args.clear_session:
+        if AUTH_STATE_FILE.exists():
+            AUTH_STATE_FILE.unlink()
+            print("✓ Session cleared!")
+        else:
+            print("No session to clear.")
+        return
+    
+    # Force non-headless for login
+    headless = False if args.login else args.headless
+    
+    async with AIUploader(headless=headless, prompt=args.prompt) as uploader:
+        
+        # Login mode
+        if args.login:
+            await uploader.login()
+            return
+        
+        # Check if we need to login first
+        is_logged_in = await uploader.check_login_status()
+        
+        if not is_logged_in:
+            print("\n" + "="*60)
+            print("SESSION EXPIRED atau BELUM LOGIN")
+            print("="*60)
+            print("Jalankan dulu: python ai_uploader.py --login")
+            print("="*60 + "\n")
+            return
         
         if args.video:
             # Process single video

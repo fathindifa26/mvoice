@@ -114,6 +114,9 @@ downloads/*.mov
 # Keep downloads folder but ignore contents
 !downloads/.gitkeep
 
+# Auth/Session files (sensitive!)
+auth_state.json
+
 # Playwright
 playwright-report/
 test-results/
