@@ -418,10 +418,10 @@ class AIUploader:
             # Track response stability
             last_text = ""
             stable_count = 0
-            required_stable = 3  # Response must be stable for 3 consecutive checks
+            required_stable = 5  # Response must be stable for 5 consecutive checks (10 seconds)
             
             # Poll until we get actual content (not loading text)
-            max_attempts = 150  # 5 minutes max (150 * 2 seconds)
+            max_attempts = 300  # 10 minutes max (300 * 2 seconds)
             
             for attempt in range(max_attempts):
                 current_text = ""
