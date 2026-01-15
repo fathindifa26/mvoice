@@ -12,7 +12,7 @@ import argparse
 from datetime import datetime
 
 from config import DEFAULT_PROMPT, OUTPUT_FILE
-from utils import logger, get_unique_urls, get_processed_urls, get_video_path
+from utils import logger, get_unique_urls, get_processed_urls, get_video_path, migrate_old_output_format
 from downloader import VideoDownloader
 from ai_uploader import AIUploader
 
@@ -216,6 +216,9 @@ async def main():
     )
     
     args = parser.parse_args()
+    
+    # Migrate old output format if needed (runs once automatically)
+    migrate_old_output_format()
     
     if args.interactive:
         await interactive_mode()
