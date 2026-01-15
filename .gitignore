@@ -109,7 +109,7 @@ downloads/*.avi
 downloads/*.mov
 
 # Output files (can regenerate)
-*.csv
+# *.csv
 
 # Keep downloads folder but ignore contents
 !downloads/.gitkeep
