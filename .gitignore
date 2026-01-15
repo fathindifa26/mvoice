@@ -140,3 +140,5 @@ playwright/.cache/
 *.temp
 .cache/
 *.pid
+
+output.csv

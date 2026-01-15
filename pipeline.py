@@ -37,7 +37,9 @@ from utils import (
     log_failed_url
 )
 from downloader import VideoDownloader
+
 from ai_uploader import AIUploader
+from ai_upload_check import should_attempt_ai_upload
 
 
 class StreamingPipeline:
@@ -191,6 +193,12 @@ class StreamingPipeline:
                     self.stats['upload']['failed'] += 1
                     log_failed_url(url, "Video file not found")
                     continue
+
+                # Only upload if output.csv row is empty or header-like
+                if not should_attempt_ai_upload(url, OUTPUT_FILE):
+                    logger.info(f"Skipping upload for {url} (already has valid AI result)")
+                    self.stats['upload']['skipped'] += 1
+                    continue
                 
                 response = await uploader.process_video(url, video_path, max_retries=5)
                 
@@ -270,12 +278,17 @@ class StreamingPipeline:
                     
                     for url, video_path in downloaded_videos:
                         logger.info(f"Processing: {video_path.name}")
-                        
+
+                        # Only upload if output.csv row is empty or header-like
+                        if not should_attempt_ai_upload(url, OUTPUT_FILE):
+                            logger.info(f"Skipping upload for {url} (already has valid AI result)")
+                            self.stats['upload']['skipped'] += 1
+                            continue
+
                         response = await uploader.process_video(url, video_path, max_retries=5)
-                        
+
                         if response:
                             self.stats['upload']['successful'] += 1
-                            
                             # Step 3: Delete after successful upload
                             if self.delete_after_upload:
                                 try:
@@ -288,7 +301,7 @@ class StreamingPipeline:
                             self.stats['upload']['failed'] += 1
                             # Log failed upload to output.csv
                             log_failed_url(url, "AI upload failed")
-                        
+
                         self._print_progress()
                         await asyncio.sleep(2)
                     
