@@ -259,17 +259,54 @@ class VideoDownloader:
             submit_selector = 'button:has-text("Download"), .btn-download, #download-btn, button[type="submit"]'
             await page.click(submit_selector)
             
-            # Wait longer for page to process and ads to appear
-            logger.info("Waiting for page to process (10 seconds)...")
-            await page.wait_for_timeout(10000)
+            # Wait for page to process
+            logger.info("Waiting for page to process (5 seconds)...")
+            await page.wait_for_timeout(5000)
             
-            # Look for download link
+            # Close popup ads by clicking multiple times at top and bottom
+            logger.info("Closing popup ads with multiple clicks...")
+            viewport = page.viewport_size
+            if viewport:
+                for attempt in range(5):
+                    logger.info(f"Ad closing attempt {attempt + 1}/5")
+                    # Click at top of page
+                    await page.mouse.click(viewport["width"] // 2, 100)
+                    await page.wait_for_timeout(500)
+                    # Click at bottom of page
+                    await page.mouse.click(viewport["width"] // 2, viewport["height"] - 100)
+                    await page.wait_for_timeout(500)
+                    # Press Escape
+                    await page.keyboard.press("Escape")
+                    await page.wait_for_timeout(300)
+                    
+                    # Check if download link is visible
+                    try:
+                        download_visible = await page.locator('a[title="Download Video"]').is_visible(timeout=1000)
+                        if download_visible:
+                            logger.info("Download link is now visible!")
+                            break
+                    except:
+                        pass
+            
+            # Setup download event handler
+            download_done = False
+            
+            async def on_download(download):
+                nonlocal download_done
+                logger.info(f"Download started: {download.suggested_filename}")
+                await download.save_as(output_path)
+                logger.info(f"Download saved to: {output_path}")
+                download_done = True
+            
+            page.on("download", on_download)
+            
+            # Look for "Download Video" link
             download_selectors = [
-                'a[href*="download"]',
-                'a.download-btn',
-                '.download-items a',
-                'a:has-text("Download")',
-                'a:has-text("Video")'
+                'a[title="Download Video"]',
+                'a.btn-premium',
+                'a:has-text("Download Video")',
+                'a[href*="snapcdn"]',
+                'a.abutton.is-success',
             ]
             
             for selector in download_selectors:
@@ -278,33 +315,9 @@ class VideoDownloader:
                     if await download_link.is_visible(timeout=3000):
                         logger.info(f"Found download link with selector: {selector}")
                         
-                        # Use Playwright's download event handler
-                        download_done = False
-                        
-                        async def on_download(download):
-                            nonlocal download_done
-                            logger.info(f"Download started: {download.suggested_filename}")
-                            await download.save_as(output_path)
-                            logger.info(f"Download saved to: {output_path}")
-                            download_done = True
-                        
-                        page.on("download", on_download)
-                        
-                        # Click download button (this triggers ads)
+                        # Click download video link
                         await download_link.click()
-                        logger.info("Clicked download button, waiting for ads...")
-                        
-                        # Wait for ads to appear
-                        await page.wait_for_timeout(2000)
-                        
-                        # Try to close ads by clicking multiple times
-                        for attempt in range(5):
-                            if download_done:
-                                logger.info("Download already completed!")
-                                return True
-                            logger.info(f"Ad closing attempt {attempt + 1}/5")
-                            await self._close_ads(page)
-                            await page.wait_for_timeout(800)
+                        logger.info("Clicked Download Video link...")
                         
                         # Wait for download to complete
                         logger.info("Waiting for download to complete...")
