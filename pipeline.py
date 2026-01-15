@@ -33,7 +33,8 @@ from utils import (
     get_processed_urls, 
     get_video_path, 
     migrate_old_output_format,
-    detect_platform
+    detect_platform,
+    log_failed_url
 )
 from downloader import VideoDownloader
 from ai_uploader import AIUploader
@@ -160,6 +161,7 @@ class StreamingPipeline:
                         self.stats['download']['successful'] += 1
                     else:
                         self.stats['download']['failed'] += 1
+                        log_failed_url(url, "Download failed or timeout")
                     
                     self._print_progress()
                     await asyncio.sleep(1)
@@ -187,6 +189,7 @@ class StreamingPipeline:
                 if not video_path.exists():
                     logger.warning(f"Video not found: {video_path}")
                     self.stats['upload']['failed'] += 1
+                    log_failed_url(url, "Video file not found")
                     continue
                 
                 response = await uploader.process_video(url, video_path)
@@ -204,6 +207,7 @@ class StreamingPipeline:
                             logger.warning(f"Failed to delete {video_path}: {e}")
                 else:
                     self.stats['upload']['failed'] += 1
+                    log_failed_url(url, "AI upload failed")
                 
                 self._print_progress()
                 await asyncio.sleep(2)
@@ -255,6 +259,8 @@ class StreamingPipeline:
                             downloaded_videos.append((url, path))
                         else:
                             self.stats['download']['failed'] += 1
+                            # Log failed download to output.csv
+                            log_failed_url(url, "Download failed or timeout")
                         
                         self._print_progress()
                         await asyncio.sleep(1)
@@ -280,6 +286,8 @@ class StreamingPipeline:
                                     logger.warning(f"Failed to delete {video_path}: {e}")
                         else:
                             self.stats['upload']['failed'] += 1
+                            # Log failed upload to output.csv
+                            log_failed_url(url, "AI upload failed")
                         
                         self._print_progress()
                         await asyncio.sleep(2)

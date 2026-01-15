@@ -28,7 +28,8 @@ from utils import (
     get_unique_urls, 
     detect_platform, 
     get_video_path,
-    generate_filename
+    generate_filename,
+    log_failed_url
 )
 
 
@@ -198,16 +199,17 @@ class VideoDownloader:
                             await self._close_ads(page)
                             await page.wait_for_timeout(800)
                         
-                        # Wait for download to complete
-                        logger.info("Waiting for download to complete...")
-                        for _ in range(DOWNLOAD_TIMEOUT):
+                        # Wait for download to complete (max 30 seconds after ad closing)
+                        logger.info("Waiting for download to complete (max 30s)...")
+                        download_wait_timeout = 30  # seconds
+                        for i in range(download_wait_timeout):
                             if download_done or output_path.exists():
                                 logger.info(f"Saved TikTok video: {output_path}")
                                 return True
                             await page.wait_for_timeout(1000)
                         
-                        logger.warning(f"Download timeout for {url}")
-                        continue
+                        logger.warning(f"Download timeout after {download_wait_timeout}s for {url}")
+                        return False  # Exit after timeout, don't try other selectors
                 except Exception as e:
                     logger.debug(f"Error with selector {selector}: {e}")
                     continue
@@ -319,16 +321,17 @@ class VideoDownloader:
                         await download_link.click()
                         logger.info("Clicked Download Video link...")
                         
-                        # Wait for download to complete
-                        logger.info("Waiting for download to complete...")
-                        for _ in range(DOWNLOAD_TIMEOUT):
+                        # Wait for download to complete (max 30 seconds)
+                        logger.info("Waiting for download to complete (max 30s)...")
+                        download_wait_timeout = 30  # seconds
+                        for i in range(download_wait_timeout):
                             if download_done or output_path.exists():
                                 logger.info(f"Saved Instagram video: {output_path}")
                                 return True
                             await page.wait_for_timeout(1000)
                         
-                        logger.warning(f"Download timeout for {url}")
-                        continue
+                        logger.warning(f"Download timeout after {download_wait_timeout}s for {url}")
+                        return False  # Exit after timeout
                 except Exception as e:
                     logger.debug(f"Error with selector {selector}: {e}")
                     continue

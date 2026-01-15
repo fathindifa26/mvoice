@@ -248,6 +248,31 @@ def clean_message(message: str) -> str:
     return message
 
 
+def log_failed_url(url: str, reason: str, file_path: Path = OUTPUT_FILE):
+    """
+    Log a failed URL to output CSV with error reason.
+    
+    Args:
+        url: Video URL that failed
+        reason: Reason for failure
+        file_path: Output file path
+    """
+    file_exists = file_path.exists()
+    
+    try:
+        with open(file_path, 'a', newline='', encoding='utf-8') as f:
+            fieldnames = ['url', 'message']
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            
+            if not file_exists:
+                writer.writeheader()
+            
+            writer.writerow({'url': url, 'message': f'FAILED: {reason}'})
+        logger.warning(f"Logged failed URL: {url} - {reason}")
+    except Exception as e:
+        logger.error(f"Error logging failed URL: {e}")
+
+
 # Define all metrics columns in order
 METRICS_COLUMNS = [
     "Business Unit",
