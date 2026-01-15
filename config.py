@@ -81,6 +81,8 @@ TIMEOUT = 60000  # Default timeout in milliseconds
 # Download settings
 MAX_RETRIES = 3
 DOWNLOAD_TIMEOUT = 120  # Seconds
+BATCH_SIZE = 5  # Number of videos to download per batch
+DELETE_AFTER_UPLOAD = True  # Delete video file after successful AI upload
 
 # Supported platforms
 SUPPORTED_PLATFORMS = ["tiktok", "instagram"]
