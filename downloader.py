@@ -66,6 +66,53 @@ class VideoDownloader:
             await self.playwright.stop()
         logger.info("Browser closed")
     
+    async def _close_ads(self, page: Page):
+        """
+        Close any ads or popups that appear on the page.
+        
+        Args:
+            page: Playwright page instance
+        """
+        logger.info("Attempting to close ads/popups...")
+        
+        # Simple approach: Click multiple times anywhere on the page to dismiss ads
+        viewport = page.viewport_size
+        if viewport:
+            # Click 3-5 times at the right side of the page
+            click_positions = [
+                {"x": viewport["width"] - 100, "y": viewport["height"] // 2},      # Right middle
+                {"x": viewport["width"] - 150, "y": viewport["height"] // 3},      # Right upper
+                {"x": viewport["width"] - 100, "y": viewport["height"] // 2 + 50}, # Right middle lower
+            ]
+            
+            for i, pos in enumerate(click_positions):
+                try:
+                    logger.info(f"Click {i + 1}/3 at position: ({pos['x']}, {pos['y']})")
+                    await page.mouse.click(pos["x"], pos["y"])
+                    await page.wait_for_timeout(500)
+                except Exception as e:
+                    logger.debug(f"Click failed: {e}")
+        
+        # Also try pressing Escape
+        try:
+            await page.keyboard.press("Escape")
+            await page.wait_for_timeout(300)
+        except:
+            pass
+        
+        # Close any new tabs/popups that might have opened
+        try:
+            pages = page.context.pages
+            if len(pages) > 1:
+                logger.info(f"Found {len(pages)} tabs, closing extra tabs...")
+                for p in pages[1:]:
+                    await p.close()
+                    logger.info("Closed popup tab")
+        except:
+            pass
+        
+        logger.info("Ad close attempts completed")
+    
     async def download_tiktok(self, url: str, output_path: Path) -> bool:
         """
         Download TikTok video using third-party downloader.
@@ -85,21 +132,27 @@ class VideoDownloader:
         try:
             # Use snaptik as downloader
             downloader_url = "https://snaptik.app/"
+            logger.info(f"Navigating to {downloader_url}")
             await page.goto(downloader_url, timeout=TIMEOUT)
             
-            # Wait for page to load
-            await page.wait_for_load_state("networkidle", timeout=TIMEOUT)
+            # Wait for page to load (use domcontentloaded instead of networkidle to avoid timeout from ads)
+            logger.info("Waiting for page to load...")
+            await page.wait_for_load_state("domcontentloaded", timeout=TIMEOUT)
             
             # Find input field and enter URL
+            logger.info("Looking for input field...")
             input_selector = 'input[name="url"], input[type="text"], #url'
             await page.wait_for_selector(input_selector, timeout=TIMEOUT)
+            logger.info(f"Filling URL: {url}")
             await page.fill(input_selector, url)
             
             # Click download button
+            logger.info("Clicking submit button...")
             submit_selector = 'button[type="submit"], .button-go, #submiturl'
             await page.click(submit_selector)
             
-            # Wait for download links to appear
+            # Wait longer for page to process and ads to appear
+            logger.info("Waiting for page to process (5 seconds)...")
             await page.wait_for_timeout(5000)
             
             # Look for download link
@@ -115,15 +168,48 @@ class VideoDownloader:
                 try:
                     download_link = page.locator(selector).first
                     if await download_link.is_visible(timeout=3000):
-                        # Start download
-                        async with page.expect_download(timeout=DOWNLOAD_TIMEOUT * 1000) as download_info:
-                            await download_link.click()
+                        logger.info(f"Found download link with selector: {selector}")
                         
-                        download = await download_info.value
-                        await download.save_as(output_path)
-                        logger.info(f"Downloaded TikTok video: {output_path}")
-                        return True
-                except Exception:
+                        # Use Playwright's expect_download with event handler
+                        download_done = False
+                        
+                        async def on_download(download):
+                            nonlocal download_done
+                            logger.info(f"Download started: {download.suggested_filename}")
+                            await download.save_as(output_path)
+                            logger.info(f"Download saved to: {output_path}")
+                            download_done = True
+                        
+                        page.on("download", on_download)
+                        
+                        # Click download button (this triggers ads)
+                        await download_link.click()
+                        logger.info("Clicked download button, waiting for ads...")
+                        
+                        # Wait for ads to appear
+                        await page.wait_for_timeout(2000)
+                        
+                        # Try to close ads by clicking multiple times
+                        for attempt in range(5):
+                            if download_done:
+                                logger.info("Download already completed!")
+                                return True
+                            logger.info(f"Ad closing attempt {attempt + 1}/5")
+                            await self._close_ads(page)
+                            await page.wait_for_timeout(800)
+                        
+                        # Wait for download to complete
+                        logger.info("Waiting for download to complete...")
+                        for _ in range(DOWNLOAD_TIMEOUT):
+                            if download_done or output_path.exists():
+                                logger.info(f"Saved TikTok video: {output_path}")
+                                return True
+                            await page.wait_for_timeout(1000)
+                        
+                        logger.warning(f"Download timeout for {url}")
+                        continue
+                except Exception as e:
+                    logger.debug(f"Error with selector {selector}: {e}")
                     continue
             
             logger.warning(f"Could not find download link for {url}")
@@ -153,23 +239,29 @@ class VideoDownloader:
         
         try:
             # Use snapinsta as downloader
-            downloader_url = "https://snapinsta.app/"
+            downloader_url = "https://snapvideo.app/en"
+            logger.info(f"Navigating to {downloader_url}")
             await page.goto(downloader_url, timeout=TIMEOUT)
             
-            # Wait for page to load
-            await page.wait_for_load_state("networkidle", timeout=TIMEOUT)
+            # Wait for page to load (use domcontentloaded instead of networkidle to avoid timeout from ads)
+            logger.info("Waiting for page to load...")
+            await page.wait_for_load_state("domcontentloaded", timeout=TIMEOUT)
             
             # Find input field and enter URL
+            logger.info("Looking for input field...")
             input_selector = 'input[name="url"], input[type="text"], #url'
             await page.wait_for_selector(input_selector, timeout=TIMEOUT)
+            logger.info(f"Filling URL: {url}")
             await page.fill(input_selector, url)
             
             # Click download button
-            submit_selector = 'button[type="submit"], .btn-submit, #download-btn'
+            logger.info("Clicking Download button...")
+            submit_selector = 'button:has-text("Download"), .btn-download, #download-btn, button[type="submit"]'
             await page.click(submit_selector)
             
-            # Wait for download links to appear
-            await page.wait_for_timeout(5000)
+            # Wait longer for page to process and ads to appear
+            logger.info("Waiting for page to process (10 seconds)...")
+            await page.wait_for_timeout(10000)
             
             # Look for download link
             download_selectors = [
@@ -184,15 +276,48 @@ class VideoDownloader:
                 try:
                     download_link = page.locator(selector).first
                     if await download_link.is_visible(timeout=3000):
-                        # Start download
-                        async with page.expect_download(timeout=DOWNLOAD_TIMEOUT * 1000) as download_info:
-                            await download_link.click()
+                        logger.info(f"Found download link with selector: {selector}")
                         
-                        download = await download_info.value
-                        await download.save_as(output_path)
-                        logger.info(f"Downloaded Instagram video: {output_path}")
-                        return True
-                except Exception:
+                        # Use Playwright's download event handler
+                        download_done = False
+                        
+                        async def on_download(download):
+                            nonlocal download_done
+                            logger.info(f"Download started: {download.suggested_filename}")
+                            await download.save_as(output_path)
+                            logger.info(f"Download saved to: {output_path}")
+                            download_done = True
+                        
+                        page.on("download", on_download)
+                        
+                        # Click download button (this triggers ads)
+                        await download_link.click()
+                        logger.info("Clicked download button, waiting for ads...")
+                        
+                        # Wait for ads to appear
+                        await page.wait_for_timeout(2000)
+                        
+                        # Try to close ads by clicking multiple times
+                        for attempt in range(5):
+                            if download_done:
+                                logger.info("Download already completed!")
+                                return True
+                            logger.info(f"Ad closing attempt {attempt + 1}/5")
+                            await self._close_ads(page)
+                            await page.wait_for_timeout(800)
+                        
+                        # Wait for download to complete
+                        logger.info("Waiting for download to complete...")
+                        for _ in range(DOWNLOAD_TIMEOUT):
+                            if download_done or output_path.exists():
+                                logger.info(f"Saved Instagram video: {output_path}")
+                                return True
+                            await page.wait_for_timeout(1000)
+                        
+                        logger.warning(f"Download timeout for {url}")
+                        continue
+                except Exception as e:
+                    logger.debug(f"Error with selector {selector}: {e}")
                     continue
             
             logger.warning(f"Could not find download link for {url}")
