@@ -106,7 +106,8 @@ CMD=""
 
 # Prefer xvfb-run if available
 if command -v xvfb-run >/dev/null 2>&1; then
-  CMD="xvfb-run -s \"-screen 0 1920x1080x24\" python pipeline.py --batch-size ${BATCH_SIZE}"
+  # add -- to separate xvfb-run options from the command
+  CMD="xvfb-run -s \"-screen 0 1920x1080x24\" -- python pipeline.py --batch-size ${BATCH_SIZE}"
 else
   CMD="python pipeline.py --batch-size ${BATCH_SIZE}"
 fi
