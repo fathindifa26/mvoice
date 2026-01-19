@@ -330,7 +330,54 @@ class VideoDownloader:
                                 return True
                             await page.wait_for_timeout(1000)
                         
-                        logger.warning(f"Download timeout after {download_wait_timeout}s for {url}")
+                        # If still not downloaded after initial wait, try closing popup ads
+                        logger.info(f"Initial wait expired; attempting ad-close retries for {url}...")
+                        viewport = page.viewport_size
+                        if viewport:
+                            for attempt in range(5):
+                                logger.info(f"Ad closing attempt {attempt + 1}/5")
+                                # Click at top of page
+                                try:
+                                    await page.mouse.click(viewport["width"] // 2, 100)
+                                    await page.wait_for_timeout(500)
+                                except Exception:
+                                    pass
+                                # Click at bottom of page
+                                try:
+                                    await page.mouse.click(viewport["width"] // 2, viewport["height"] - 100)
+                                    await page.wait_for_timeout(500)
+                                except Exception:
+                                    pass
+                                # Press Escape
+                                try:
+                                    await page.keyboard.press("Escape")
+                                    await page.wait_for_timeout(300)
+                                except Exception:
+                                    pass
+
+                                # If download started during clicks, finish
+                                if download_done or output_path.exists():
+                                    logger.info(f"Saved Instagram video after ad-close: {output_path}")
+                                    return True
+
+                                # Try clicking the download link again if visible
+                                try:
+                                    if await download_link.is_visible(timeout=1000):
+                                        logger.info("Re-clicking download link after ad-close attempt...")
+                                        await download_link.click()
+                                        await page.wait_for_timeout(800)
+                                except Exception:
+                                    pass
+
+                        # After ad-close retries, wait again for download to complete (max 30 seconds)
+                        logger.info("Waiting again for download to complete (max 30s)...")
+                        for i in range(download_wait_timeout):
+                            if download_done or output_path.exists():
+                                logger.info(f"Saved Instagram video: {output_path}")
+                                return True
+                            await page.wait_for_timeout(1000)
+
+                        logger.warning(f"Download timeout after retries ({download_wait_timeout}s) for {url}")
                         return False  # Exit after timeout
                 except Exception as e:
                     logger.debug(f"Error with selector {selector}: {e}")
