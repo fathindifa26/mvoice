@@ -159,10 +159,18 @@ if [ -f ".venv/bin/activate" ]; then
   source .venv/bin/activate
 fi
 echo "=== RUN START \\$(date) (user=\\$(id -un)) ===" >> mvoice.log
-echo "Command: $CMD" >> mvoice.log
-# Execute the command and capture exit code
-bash -lc "$CMD" >> mvoice.log 2>&1 || echo "EXIT:\$? at \$(date)" >> mvoice.log
-echo "=== RUN END \\$(date) ===" >> mvoice.log
+echo "PATH=\\$PATH" >> mvoice.log
+echo "Running: python pipeline.py --batch-size ${BATCH_SIZE} ${EXTRA_ARGS[*]}" >> mvoice.log
+
+if command -v xvfb-run >/dev/null 2>&1; then
+  echo "Using xvfb-run" >> mvoice.log
+  xvfb-run -s "-screen 0 1920x1080x24" -- python pipeline.py --batch-size ${BATCH_SIZE} ${EXTRA_ARGS[*]} >> mvoice.log 2>&1 || echo "EXIT:$? at $(date)" >> mvoice.log
+else
+  echo "xvfb-run not found, running without Xvfb" >> mvoice.log
+  python pipeline.py --batch-size ${BATCH_SIZE} ${EXTRA_ARGS[*]} >> mvoice.log 2>&1 || echo "EXIT:$? at $(date)" >> mvoice.log
+fi
+
+echo "=== RUN END $(date) ===" >> mvoice.log
 EOF
 
   chmod +x "$WRAPPER"
