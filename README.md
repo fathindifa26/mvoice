@@ -377,3 +377,50 @@ tmux attach -t mvoice
 ## 📄 License
 
 Internal use only.
+
+## 📦 One-line VM setup & easy run (for non-technical users)
+
+This repo includes helper scripts to make VM setup and running the pipeline simple.
+
+- After cloning the repo on the server, run the bootstrap script which installs system packages, creates a Python virtualenv, installs Python dependencies, and installs Playwright browsers.
+
+One-line example (run in SSH session on the VM):
+
+```bash
+git clone https://github.com/fathindifa26/mvoice.git && cd mvoice && sudo bash bootstrap.sh
+```
+
+Notes:
+- The `bootstrap.sh` will finish by checking for two required files: `auth_state.json` and `data.csv`.
+- You MUST upload these two files into the project folder on the VM before running the pipeline.
+
+How to upload the two required files from your local machine:
+
+```bash
+# From your local machine (replace user@server and path)
+scp auth_state.json data.csv user@server:/home/user/mvoice/
+```
+
+After the files are uploaded, start the pipeline with the helper script:
+
+```bash
+# Start pipeline in a detached tmux session (default batch size 10)
+./run_pipeline.sh --batch-size 10
+
+# To run headless or change options
+./run_pipeline.sh --batch-size 20 --headless --no-delete
+```
+
+Tips for non-technical users:
+- If you need to watch logs or interact, attach to the tmux session:
+
+```bash
+tmux attach -t mvoice
+```
+
+- To stop, attach and press Ctrl+C, or kill the tmux session from another shell:
+
+```bash
+tmux kill-session -t mvoice
+```
+
