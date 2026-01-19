@@ -124,10 +124,29 @@ done
 echo "Starting pipeline in tmux session: $SESSION_NAME"
 echo "Command: $CMD"
 
-if tmux ls | grep -q "^${SESSION_NAME}:" 2>/dev/null; then
-  echo "Tmux session $SESSION_NAME already exists. Attaching..."
-  tmux attach -t "$SESSION_NAME"
+# Determine user context for tmux: if run with sudo, use the original user ($SUDO_USER)
+IS_ROOT=false
+if [ "$(id -u)" -eq 0 ]; then
+  IS_ROOT=true
+fi
+
+if [ "$IS_ROOT" = true ] && [ -n "${SUDO_USER:-}" ]; then
+  RUN_USER="$SUDO_USER"
 else
-  tmux new -d -s "$SESSION_NAME" bash -lc "$CMD; echo \"Pipeline finished (exit=$?)\"; sleep 5"
-  echo "Started detached tmux session '$SESSION_NAME'. To view logs: tmux attach -t $SESSION_NAME"
+  RUN_USER="$(id -un)"
+fi
+
+# TMUX_PREFIX will run tmux commands as RUN_USER when needed
+TMUX_PREFIX=()
+if [ "$IS_ROOT" = true ] && [ "$(id -un)" = "root" ] && [ "$RUN_USER" != "root" ]; then
+  TMUX_PREFIX=(sudo -u "$RUN_USER")
+fi
+
+# Use tmux from the correct user context
+if "${TMUX_PREFIX[@]}" tmux ls 2>/dev/null | grep -q "^${SESSION_NAME}:"; then
+  echo "Tmux session $SESSION_NAME already exists. Attaching..."
+  "${TMUX_PREFIX[@]}" tmux attach -t "$SESSION_NAME"
+else
+  "${TMUX_PREFIX[@]}" tmux new -d -s "$SESSION_NAME" bash -lc "$CMD; echo \"Pipeline finished (exit=\$?)\"; sleep 5"
+  echo "Started detached tmux session '$SESSION_NAME'. To view logs: ${TMUX_PREFIX:+run as $RUN_USER }tmux attach -t $SESSION_NAME"
 fi
