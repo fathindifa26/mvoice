@@ -147,16 +147,41 @@ if "${TMUX_PREFIX[@]}" tmux ls 2>/dev/null | grep -q "^${SESSION_NAME}:"; then
   echo "Tmux session $SESSION_NAME already exists. Attaching..."
   "${TMUX_PREFIX[@]}" tmux attach -t "$SESSION_NAME"
 else
-  "${TMUX_PREFIX[@]}" tmux new -d -s "$SESSION_NAME" bash -lc "$CMD; echo \"Pipeline finished (exit=\$?)\"; sleep 5"
+  # Create a small wrapper that activates venv and runs the command, appending logs
+  WRAPPER="$ROOT_DIR/.run_pipeline_cmd.sh"
+  cat > "$WRAPPER" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$ROOT_DIR"
+if [ -f ".venv/bin/activate" ]; then
+  # shellcheck disable=SC1091
+  source .venv/bin/activate
+fi
+echo "=== RUN START \\$(date) (user=\\$(id -un)) ===" >> mvoice.log
+echo "Command: $CMD" >> mvoice.log
+# Execute the command and capture exit code
+bash -lc "$CMD" >> mvoice.log 2>&1 || echo "EXIT:\$? at \$(date)" >> mvoice.log
+echo "=== RUN END \\$(date) ===" >> mvoice.log
+EOF
+
+  chmod +x "$WRAPPER"
+  # Ensure wrapper ownership matches RUN_USER when using sudo
+  if [ "$IS_ROOT" = true ] && [ -n "${SUDO_USER:-}" ] && [ "$RUN_USER" != "root" ]; then
+    sudo chown "$RUN_USER":"$RUN_USER" "$WRAPPER" || true
+  fi
+
+  # Start wrapper inside tmux (as RUN_USER if needed)
+  "${TMUX_PREFIX[@]}" tmux new -d -s "$SESSION_NAME" bash -lc "$WRAPPER; echo \"Wrapper finished (exit=\$?)\"; sleep 5"
+
   # Give tmux a moment to start; if the session disappears immediately, run in foreground for diagnostics
   sleep 3
   if ! "${TMUX_PREFIX[@]}" tmux ls 2>/dev/null | grep -q "^${SESSION_NAME}:"; then
     echo "Tmux session failed to start or exited immediately. Running pipeline in foreground for diagnostics..."
     echo "Command: $CMD"
-    # Run command in foreground and capture output to mvoice.log
-    bash -lc "$CMD" 2>&1 | tee mvoice.log
+    # Run wrapper in foreground (so logs are produced and visible)
+    bash "$WRAPPER" 2>&1 | tee mvoice.log
     exit_code=${PIPESTATUS[0]:-0}
-    echo "Foreground run finished with exit=$exit_code"
+    echo "Foreground wrapper finished with exit=$exit_code"
     exit $exit_code
   else
     echo "Started detached tmux session '$SESSION_NAME'. To view logs: ${TMUX_PREFIX:+run as $RUN_USER }tmux attach -t $SESSION_NAME"
