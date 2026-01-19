@@ -18,60 +18,67 @@ DOWNLOADS_DIR.mkdir(exist_ok=True)
 AI_URL = "https://imagine.wpp.ai/chat/zepYR9RpFQid3NJY7I7MY/foundational"
 
 # Default prompt template (can be customized)
-DEFAULT_PROMPT = """Analyze this video. Output ONLY a markdown table with columns 'Metrics' and 'Value'. No intro, no explanation, just the table.
+DEFAULT_PROMPT = """Analyze this video and output ONLY a single JSON object (no surrounding text, no markdown, no explanation).
 
-| Metrics | Value |
-|---------|-------|
-| Business Unit | |
-| Category | |
-| Brand | |
-| Platform | |
-| Creative Link | |
-| Period | |
-| Brand Presence // First Product Appearance (Seconds) | |
-| Brand Presence // First Product Appearance (%) | |
-| Brand Presence // First Standalone Logo Appearance (Seconds) | |
-| Brand Presence // First Standalone Logo Appearance (%) | |
-| Brand Presence // Brand Logo Visibility - Standalone | Yes/No |
-| Brand Presence // Brand Logo Visibility - On Product | Yes/No |
-| Brand Presence // Brand Prominence | High/Medium/Low |
-| Brand Presence // Brand Appearance Count | |
-| Brand Presence // Other Brands Present | |
-| Visuals // Visual Style | |
-| Visuals // Color Palette | |
-| Visuals // Creative Duration (Seconds) | |
-| Visuals // Animation/CGI Used | Yes/No |
-| Visuals // Production Quality | High/Medium/Low |
-| Visuals // Setting | |
-| Visuals // Nature Setting | Yes/No |
-| Visuals // Scientific Setting | Yes/No |
-| Visuals // Real Life vs. Staged | |
-| Visuals // Individual vs. Group Focus | |
-| Visuals // On-Screen Text | Yes/No |
-| Visuals // Text Style | |
-| Visuals // Text Size | |
-| Visuals // Beauty Appeal | |
-| Visuals // Ingredient Visual | Yes/No |
-| Visuals // Horizontal vs. Vertical | |
-| Audio // Audio Type | |
-| Audio // Voiceover vs. Talent | |
-| Audio // Localized Language | Yes/No |
-| Audio // Sound Effects Usage | |
-| Talent // Talent Type | |
-| Talent // Number of KOLs | |
-| Talent // Brand Ambassador Used | Yes/No |
-| Messaging // Messaging Summary | |
-| Messaging // Emotional Tone | |
-| Messaging // Key Product Benefit Highlighted | |
-| Messaging // Emotional Appeal | High/Medium/Low |
-| Messaging // Storytelling Used | Yes/No |
-| Messaging // Call to Action (CTA) | |
-| Meaningful & Different // Social Impact | |
-| Meaningful & Different // Emotional Depth | |
-| Meaningful & Different // Authenticity | High/Medium/Low |
-| Meaningful & Different // Uniqueness of Concept | 1-5 |
-| Meaningful & Different // Execution Style | |
-| Meaningful & Different // Target Surprise | |"""
+Rules:
+- Output must be valid JSON parseable with `json.loads()`.
+- The JSON object keys must exactly match the metric names used in the pipeline (use empty string "" for unknown/missing values).
+- Do NOT include any commentary, code fences, or additional fields.
+
+Example output (all keys must be present; values may be empty strings):
+{
+	"Business Unit": "",
+	"Category": "",
+	"Brand": "",
+	"Platform": "",
+	"Creative Link": "",
+	"Period": "",
+	"Brand Presence // First Product Appearance (Seconds)": "",
+	"Brand Presence // First Product Appearance (%)": "",
+	"Brand Presence // First Standalone Logo Appearance (Seconds)": "",
+	"Brand Presence // First Standalone Logo Appearance (%)": "",
+	"Brand Presence // Brand Logo Visibility - Standalone": "",
+	"Brand Presence // Brand Logo Visibility - On Product": "",
+	"Brand Presence // Brand Prominence": "",
+	"Brand Presence // Brand Appearance Count": "",
+	"Brand Presence // Other Brands Present": "",
+	"Visuals // Visual Style": "",
+	"Visuals // Color Palette": "",
+	"Visuals // Creative Duration (Seconds)": "",
+	"Visuals // Animation/CGI Used": "",
+	"Visuals // Production Quality": "",
+	"Visuals // Setting": "",
+	"Visuals // Nature Setting": "",
+	"Visuals // Scientific Setting": "",
+	"Visuals // Real Life vs. Staged": "",
+	"Visuals // Individual vs. Group Focus": "",
+	"Visuals // On-Screen Text": "",
+	"Visuals // Text Style": "",
+	"Visuals // Text Size": "",
+	"Visuals // Beauty Appeal": "",
+	"Visuals // Ingredient Visual": "",
+	"Visuals // Horizontal vs. Vertical": "",
+	"Audio // Audio Type": "",
+	"Audio // Voiceover vs. Talent": "",
+	"Audio // Localized Language": "",
+	"Audio // Sound Effects Usage": "",
+	"Talent // Talent Type": "",
+	"Talent // Number of KOLs": "",
+	"Talent // Brand Ambassador Used": "",
+	"Messaging // Messaging Summary": "",
+	"Messaging // Emotional Tone": "",
+	"Messaging // Key Product Benefit Highlighted": "",
+	"Messaging // Emotional Appeal": "",
+	"Messaging // Storytelling Used": "",
+	"Messaging // Call to Action (CTA)": "",
+	"Meaningful & Different // Social Impact": "",
+	"Meaningful & Different // Emotional Depth": "",
+	"Meaningful & Different // Authenticity": "",
+	"Meaningful & Different // Uniqueness of Concept": "",
+	"Meaningful & Different // Execution Style": "",
+	"Meaningful & Different // Target Surprise": ""
+}
+"""
 
 # Playwright settings
 BROWSER_HEADLESS = False  # Set to True for headless mode

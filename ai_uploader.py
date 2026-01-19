@@ -11,6 +11,8 @@ import asyncio
 import argparse
 from pathlib import Path
 from typing import Optional, List, Tuple
+import json
+import re
 
 from playwright.async_api import async_playwright, Page, Browser
 
@@ -26,6 +28,10 @@ from config import (
 from utils import (
     logger,
     append_result_to_csv_parsed,
+    parse_message_to_dict,
+    is_row_empty_or_header,
+    log_failed_url,
+    METRICS_COLUMNS,
     get_downloaded_videos,
     get_processed_urls,
     clean_message,
@@ -462,6 +468,43 @@ class AIUploader:
                         stable_count = 0
                     
                     last_text = current_text
+
+                    # Quick-accept logic:
+                    # 1) If there's an embedded JSON object, require that its keys include the full set
+                    #    of metric names before accepting (prevents accepting partial JSON).
+                    # 2) If no JSON detected, fall back to table-parsing quick-accept when any metric value
+                    #    is non-empty (legacy behavior for markdown/table outputs).
+                    try:
+                        # Try to extract JSON from the text
+                        text_no_fence = re.sub(r'```\w*', '', current_text)
+                        text_no_fence = re.sub(r'```', '', text_no_fence)
+                        first_brace = text_no_fence.find('{')
+                        last_brace = text_no_fence.rfind('}')
+                        json_found = False
+                        if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+                            json_candidate = text_no_fence[first_brace:last_brace + 1]
+                            try:
+                                parsed_json = json.loads(json_candidate)
+                                if isinstance(parsed_json, dict):
+                                    json_found = True
+                                    found_keys = set(k.strip().lower() for k in parsed_json.keys())
+                                    required_keys = set(m.lower() for m in METRICS_COLUMNS)
+                                    if required_keys.issubset(found_keys):
+                                        logger.info("Detected full JSON object with required metric keys; accepting as complete")
+                                        return clean_message(current_text)
+                                    else:
+                                        logger.info(f"Partial JSON detected ({len(found_keys)}/{len(required_keys)} keys); waiting for remaining keys")
+                            except Exception:
+                                json_found = False
+
+                        # If no JSON or JSON not complete, fall back to table parse quick-accept
+                        if not json_found:
+                            parsed_quick = parse_message_to_dict(current_text)
+                            if isinstance(parsed_quick, dict) and any(v.strip() for v in parsed_quick.values()):
+                                logger.info("Detected non-empty parsed table metrics in response; accepting as complete")
+                                return clean_message(current_text)
+                    except Exception:
+                        pass
                     
                     # Response is complete if:
                     # 1. Not loading
@@ -586,27 +629,72 @@ class AIUploader:
                 
                 # Wait for response
                 response = await self.wait_for_response()
-                
+
                 if response:
-                    # Check if response is complete
+                    response_clean = response.strip()
+                    response_lower = response_clean.lower()
+
+                    # Parse early for validation
+                    try:
+                        parsed = parse_message_to_dict(response)
+                    except Exception:
+                        parsed = {}
+
+                    # Heuristics to detect prompt-echo or empty/header-only table
+                    looks_like_prompt = False
+                    try:
+                        prompt_snippet = self.prompt.strip().lower()
+                        if prompt_snippet and (prompt_snippet[:100] in response_lower or 'analyze this video' in response_lower or 'output only' in response_lower):
+                            looks_like_prompt = True
+                    except Exception:
+                        looks_like_prompt = False
+
+                    empty_or_header = is_row_empty_or_header(parsed)
+
+                    if empty_or_header or looks_like_prompt:
+                        logger.warning("AI response appears to be prompt/empty table or header-only; will treat as failed unless retries remain")
+                        if retry < max_retries - 1:
+                            # retry
+                            continue
+                        else:
+                            # last attempt -> log as failed and don't save the prompt
+                            log_failed_url(url, "AI returned prompt/empty table")
+                            return None
+
+                    # If valid-looking response, check completeness
                     if await self.is_response_complete(response):
+                        # Log raw response and parsed result for debugging
+                        try:
+                            logger.info(f"Raw AI response (len={len(response)}):\n{response}")
+                            logger.info(f"Parsed AI response: {parsed}")
+                        except Exception as e:
+                            logger.warning(f"Failed to log parsed response: {e}")
+
                         # Save result (parsed into columns)
                         append_result_to_csv_parsed(url, response)
                         logger.info(f"✓ Processed video: {url}")
                         return response
                     else:
                         logger.warning(f"Response appears incomplete ({len(response)} chars), will retry...")
-                        if retry < max_retries:
+                        # Only continue (retry) if there are attempts left
+                        if retry < max_retries - 1:
                             continue
                         else:
                             # Last retry - save whatever we have
                             logger.warning("Max retries reached, saving potentially incomplete response")
+                            try:
+                                logger.info(f"Raw AI response (len={len(response)}):\n{response}")
+                                logger.info(f"Parsed AI response: {parsed}")
+                            except Exception as e:
+                                logger.warning(f"Failed to log parsed response: {e}")
+
                             append_result_to_csv_parsed(url, response)
                             return response
                 
             except Exception as e:
                 logger.error(f"Error processing video {video_path}: {e}")
-                if retry < max_retries:
+                # If there are retries left, wait and retry; otherwise exit loop
+                if retry < max_retries - 1:
                     await asyncio.sleep(3)
                     continue
         

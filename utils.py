@@ -3,6 +3,7 @@ Utility functions for MVoice Automation
 """
 import csv
 import re
+import json
 import logging
 from pathlib import Path
 from typing import List, Dict, Optional
@@ -385,6 +386,62 @@ def parse_message_to_dict(message: str) -> Dict[str, str]:
     ]
     for prefix in prefixes_to_remove:
         text = re.sub(prefix, '', text, flags=re.IGNORECASE)
+
+    # First attempt: try to extract and parse a JSON object from the response.
+    # This supports the new JSON-first prompt format.
+    try:
+        # Strip common code fence wrappers
+        text_no_fence = re.sub(r'```\w*', '', text)
+        text_no_fence = re.sub(r'```', '', text_no_fence)
+
+        # Find the first JSON object in the text by locating the first '{' and the matching last '}'
+        first_brace = text_no_fence.find('{')
+        last_brace = text_no_fence.rfind('}')
+        if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+            json_candidate = text_no_fence[first_brace:last_brace + 1]
+            parsed = json.loads(json_candidate)
+            if isinstance(parsed, dict):
+                # Normalize keys and map to METRICS_COLUMNS
+                result = {}
+                lower_map = {k.lower(): k for k in parsed.keys()}
+                for metric in METRICS_COLUMNS:
+                    # direct match first
+                    if metric in parsed:
+                        val = parsed.get(metric, '')
+                    else:
+                        # case-insensitive lookup
+                        val = ''
+                        key = lower_map.get(metric.lower())
+                        if key:
+                            val = parsed.get(key, '')
+                    # ensure string
+                    if val is None:
+                        val = ''
+                    result[metric] = str(val).strip()
+                return result
+    except Exception:
+        # If JSON extraction/parsing fails, continue to fallback parsing below
+        pass
+
+    # Normalization: if AI concatenates metric names directly with values
+    # (e.g. "BrandNamePlatform..."), insert a ': ' after metric headings
+    # when there is no existing separator (':' or '|' or newline).
+    for metric in METRICS_COLUMNS:
+        escaped = re.escape(metric)
+        try:
+            text = re.sub(rf'(?i){escaped}\s*(?=[^:\|\n])', metric + ': ', text)
+        except re.error:
+            # skip problematic metric regex
+            continue
+
+    # Additional normalization: ensure each metric starts on a new line
+    for metric in METRICS_COLUMNS:
+        escaped = re.escape(metric)
+        try:
+            # insert newline before metric if it's not already at line start
+            text = re.sub(rf'(?<!\n)({escaped})', r'\n\1', text, flags=re.IGNORECASE)
+        except re.error:
+            continue
     
     # Try to extract values for each metric
     for i, metric in enumerate(METRICS_COLUMNS):
