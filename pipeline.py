@@ -34,12 +34,12 @@ from utils import (
     get_video_path, 
     migrate_old_output_format,
     detect_platform,
-    log_failed_url
+    log_failed_url,
+    should_attempt_ai_upload
 )
 from downloader import VideoDownloader
 
 from ai_uploader import AIUploader
-from ai_upload_check import should_attempt_ai_upload
 
 
 class StreamingPipeline:
