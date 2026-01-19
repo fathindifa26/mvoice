@@ -31,13 +31,53 @@ fi
 
 source .venv/bin/activate
 
+MISSING=()
 for f in auth_state.json data.csv; do
   if [ ! -f "$f" ]; then
-    echo "Required file missing: $f" >&2
-    echo "Please upload $f to this directory (scp from local machine)." >&2
-    exit 1
+    MISSING+=("$f")
   fi
 done
+
+if [ ${#MISSING[@]} -ne 0 ]; then
+  echo "Required files missing: ${MISSING[*]}"
+  echo "Searching fallback locations (/root and \$HOME) for the missing files..."
+
+  found_dir=""
+  for try_dir in /root "$HOME"; do
+    ok=true
+    for f in "${MISSING[@]}"; do
+      if [ ! -f "$try_dir/$f" ]; then
+        ok=false
+        break
+      fi
+    done
+    if [ "$ok" = true ]; then
+      found_dir="$try_dir"
+      break
+    fi
+  done
+
+  if [ -n "$found_dir" ]; then
+    echo "Found all missing files in: $found_dir"
+    echo "Attempting to move files into project directory ($ROOT_DIR)..."
+    for f in "${MISSING[@]}"; do
+      src="$found_dir/$f"
+      dest="$ROOT_DIR/$f"
+      # Prefer mv if writable, otherwise use sudo cp
+      if [ -w "$src" ]; then
+        mv "$src" "$dest"
+      else
+        sudo cp "$src" "$dest"
+        sudo chown "$(id -u):$(id -g)" "$dest" || true
+      fi
+      echo "Moved: $f -> $dest"
+    done
+  else
+    echo "Could not find both files in fallback locations." >&2
+    echo "Please upload auth_state.json and data.csv to this directory (scp from local machine)." >&2
+    exit 1
+  fi
+fi
 
 SESSION_NAME="mvoice"
 CMD=""
