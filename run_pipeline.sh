@@ -148,5 +148,17 @@ if "${TMUX_PREFIX[@]}" tmux ls 2>/dev/null | grep -q "^${SESSION_NAME}:"; then
   "${TMUX_PREFIX[@]}" tmux attach -t "$SESSION_NAME"
 else
   "${TMUX_PREFIX[@]}" tmux new -d -s "$SESSION_NAME" bash -lc "$CMD; echo \"Pipeline finished (exit=\$?)\"; sleep 5"
-  echo "Started detached tmux session '$SESSION_NAME'. To view logs: ${TMUX_PREFIX:+run as $RUN_USER }tmux attach -t $SESSION_NAME"
+  # Give tmux a moment to start; if the session disappears immediately, run in foreground for diagnostics
+  sleep 3
+  if ! "${TMUX_PREFIX[@]}" tmux ls 2>/dev/null | grep -q "^${SESSION_NAME}:"; then
+    echo "Tmux session failed to start or exited immediately. Running pipeline in foreground for diagnostics..."
+    echo "Command: $CMD"
+    # Run command in foreground and capture output to mvoice.log
+    bash -lc "$CMD" 2>&1 | tee mvoice.log
+    exit_code=${PIPESTATUS[0]:-0}
+    echo "Foreground run finished with exit=$exit_code"
+    exit $exit_code
+  else
+    echo "Started detached tmux session '$SESSION_NAME'. To view logs: ${TMUX_PREFIX:+run as $RUN_USER }tmux attach -t $SESSION_NAME"
+  fi
 fi
