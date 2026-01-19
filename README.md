@@ -389,8 +389,7 @@ One-line example (run in SSH session on the VM):
 If the VM may not have `git` installed, run this (will install `git` first):
 
 ```bash
-sudo apt-get update && sudo apt-get install -y git && \
-	git clone https://github.com/fathindifa26/mvoice.git && cd mvoice && sudo bash bootstrap.sh
+sudo apt-get update && sudo apt-get install -y git && git clone https://github.com/fathindifa26/mvoice.git && cd mvoice && sudo bash bootstrap.sh
 ```
 
 If `git` is already installed, this shorter command also works:

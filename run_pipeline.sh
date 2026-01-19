@@ -43,7 +43,29 @@ if [ ${#MISSING[@]} -ne 0 ]; then
   echo "Searching fallback locations (/root and \$HOME) for the missing files..."
 
   found_dir=""
-  for try_dir in /root "$HOME"; do
+
+  # Build candidate directories to search for uploaded files.
+  # Include /root, current $HOME, the original sudo user's home (if run with sudo),
+  # and every directory under /home.
+  try_dirs=(/root "$HOME")
+  if [ -n "${SUDO_USER:-}" ]; then
+    try_dirs+=("/home/$SUDO_USER")
+  fi
+  for d in /home/*; do
+    [ -d "$d" ] && try_dirs+=("$d")
+  done
+
+  # Deduplicate and ensure directories exist
+  declare -A _seen_dirs
+  unique_dirs=()
+  for td in "${try_dirs[@]}"; do
+    if [ -n "$td" ] && [ -d "$td" ] && [ -z "${_seen_dirs[$td]:-}" ]; then
+      _seen_dirs[$td]=1
+      unique_dirs+=("$td")
+    fi
+  done
+
+  for try_dir in "${unique_dirs[@]}"; do
     ok=true
     for f in "${MISSING[@]}"; do
       if [ ! -f "$try_dir/$f" ]; then
