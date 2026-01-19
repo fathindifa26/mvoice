@@ -39,6 +39,14 @@ else
   echo "Playwright not available in venv; ensure 'playwright' is in requirements.txt" >&2
 fi
 
+echo "5) Ensure Playwright Python package and browsers are installed in venv"
+if [ -f ".venv/bin/activate" ]; then
+  # try installing playwright Python package and browsers
+  python -m pip install playwright || true
+  # Install the browsers (non-root; this downloads into user's cache)
+  python -m playwright install || true
+fi
+
 echo "5) Make helper script executable"
 if [ -f run_pipeline.sh ]; then
   chmod +x run_pipeline.sh

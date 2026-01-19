@@ -31,6 +31,32 @@ fi
 
 source .venv/bin/activate
 
+# Quick check: ensure Playwright browsers are installed in user cache; if missing, install inside venv
+# Do NOT run system-level deps here (bootstrap should handle that).
+PLAYWRIGHT_CACHE_DIR="$HOME/.cache/ms-playwright"
+need_playwright_install=false
+if [ ! -d "$PLAYWRIGHT_CACHE_DIR" ]; then
+  need_playwright_install=true
+else
+  # crude check for chromium executable
+  if ! ls "$PLAYWRIGHT_CACHE_DIR"/*/chrome* >/dev/null 2>&1; then
+    need_playwright_install=true
+  fi
+fi
+
+if [ "$need_playwright_install" = true ]; then
+  echo "Playwright browsers not found in cache — attempting 'python -m playwright install' (inside venv). This may take a few minutes..."
+  # Ensure playwright package is installed
+  python -m pip install --upgrade pip setuptools wheel >/dev/null 2>&1 || true
+  python -m pip install playwright >/dev/null 2>&1 || true
+  # Install browsers (non-root). If this fails, user should run bootstrap.sh manually.
+  if python -m playwright install >/dev/null 2>&1; then
+    echo "Playwright browsers installed." 
+  else
+    echo "Warning: 'playwright install' failed. Run 'python -m playwright install' or run bootstrap.sh." >&2
+  fi
+fi
+
 MISSING=()
 for f in auth_state.json data.csv; do
   if [ ! -f "$f" ]; then
