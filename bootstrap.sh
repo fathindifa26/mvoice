@@ -9,9 +9,12 @@ cd "$ROOT_DIR"
 
 echo "== MVoice bootstrap starting in $ROOT_DIR =="
 
-echo "1) Updating apt and installing system packages (sudo may be required)"
+echo "1) Updating apt and installing base system packages (sudo may be required)"
 sudo apt-get update
-sudo apt-get install -y python3 python3-venv python3-pip xvfb tmux curl wget ca-certificates gnupg build-essential libnss3 libatk-bridge2.0-0 libx11-xcb1 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libpangocairo-1.0-0 libxss1 fonts-liberation libasound2 || true
+sudo apt-get install -y \
+  python3 python3-venv python3-pip xvfb tmux curl wget ca-certificates gnupg build-essential \
+  libnss3 libatk-bridge2.0-0 libx11-xcb1 libxcomposite1 libxdamage1 libxrandr2 libgbm1 \
+  libpangocairo-1.0-0 libxss1 fonts-liberation libasound2 || true
 
 echo "2) Creating virtual environment .venv (if missing)"
 if [ ! -d ".venv" ]; then
@@ -27,24 +30,22 @@ else
   echo "No requirements.txt found. Please ensure dependencies are installed." >&2
 fi
 
-echo "4) Installing Playwright browsers"
-# playwright CLI is available after installing playwright package into venv
-if command -v playwright >/dev/null 2>&1; then
-  playwright install chromium || true
-  # attempt to install system deps for chromium (may require sudo)
-  if command -v playwright >/dev/null 2>&1; then
-    playwright install-deps chromium || true
-  fi
-else
-  echo "Playwright not available in venv; ensure 'playwright' is in requirements.txt" >&2
-fi
+echo "4) Installing additional system libraries required by Playwright"
+# These packages satisfy Playwright browser dependencies on Ubuntu/Debian
+sudo apt-get install -y \
+  libgtk-3-0 libgdk-pixbuf2.0-0 libxcursor1 libcairo2 libxcb1 libxkbcommon0 libxcb-dri3-0 || true
 
 echo "5) Ensure Playwright Python package and browsers are installed in venv"
 if [ -f ".venv/bin/activate" ]; then
-  # try installing playwright Python package and browsers
+  # activate venv and install playwright package + browsers
+  # shellcheck disable=SC1091
+  source .venv/bin/activate
+  python -m pip install --upgrade pip || true
   python -m pip install playwright || true
-  # Install the browsers (non-root; this downloads into user's cache)
+  # Install the browser binaries (into the user's cache)
   python -m playwright install || true
+  # Try Playwright helper to install missing system deps (may require sudo)
+  sudo python -m playwright install-deps chromium || true
 fi
 
 echo "5) Make helper script executable"
