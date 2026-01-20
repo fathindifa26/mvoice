@@ -45,7 +45,12 @@ if [ -f ".venv/bin/activate" ]; then
   # Install the browser binaries (into the user's cache)
   python -m playwright install || true
   # Try Playwright helper to install missing system deps (may require sudo)
-  sudo python -m playwright install-deps chromium || true
+  # Use the Playwright CLI from the virtualenv so sudo finds the correct script
+  if [ -x ".venv/bin/playwright" ]; then
+    sudo .venv/bin/playwright install-deps chromium || true
+  else
+    echo "Playwright CLI not found in .venv; skipping install-deps (you can run: sudo .venv/bin/playwright install-deps chromium)" >&2
+  fi
 fi
 
 echo "5) Make helper script executable"
